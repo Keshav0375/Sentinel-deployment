@@ -44,6 +44,7 @@ def test_health(client: TestClient) -> None:
     response = client.get("/health")
     assert response.status_code == 200
     body = response.json()
+    assert set(body) == {"status", "uptime_seconds"}
     assert body["status"] == "ok"
     assert type(body["uptime_seconds"]) is int
     assert body["uptime_seconds"] >= 0
