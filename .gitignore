@@ -216,3 +216,7 @@ __marimo__/
 
 # Streamlit
 .streamlit/secrets.toml
+
+# Sentinel-deployment: local env variants carry real values; only the template is tracked.
+.env.*
+!.env.example
