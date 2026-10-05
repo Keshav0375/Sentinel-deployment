@@ -1,0 +1,16 @@
+# yamllint for the GitHub Actions YAML (the gate runs `yamllint .github/`).
+#
+# Two of yamllint's defaults misfire on Actions YAML specifically:
+#   truthy        `on:` is the workflow trigger KEY, which YAML 1.1 reads as a
+#                 boolean. Values are still checked; keys are not.
+#   line-length   80 columns is a prose default. Workflow lines carry `${{ }}`
+#                 expressions and the commands they run; 120 is still a limit.
+extends: default
+
+rules:
+  truthy:
+    check-keys: false
+  line-length:
+    max: 120
+  # Workflows and actions are single-document files; a leading `---` adds nothing.
+  document-start: disable
