@@ -1,0 +1,21 @@
+{
+  "name": "sentinel-deploy-failure",
+  "type": "event-v2 alert",
+  "query": "events(\"deploy_status:failed service:sentinel-watchtower\").rollup(\"count\").last(\"5m\") > 0",
+  "message": "A sentinel-watchtower deploy failed: ci_app_deployment.yml reported an event tagged deploy_status:failed (case ii, signal_type deploy_failure). The last good version is still live.\n{{#is_alert}}@webhook-sentinel-event-grid{{/is_alert}}",
+  "tags": [
+    "service:sentinel-watchtower",
+    "env:dev",
+    "deploy_status:failed"
+  ],
+  "priority": null,
+  "options": {
+    "thresholds": {
+      "critical": 0
+    },
+    "renotify_interval": 0,
+    "notify_no_data": false,
+    "notify_audit": false,
+    "include_tags": false
+  }
+}
