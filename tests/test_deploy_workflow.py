@@ -349,3 +349,17 @@ def test_dd_site_comes_from_the_environment_on_every_report() -> None:
     reports = WORKFLOW_TEXT.count("uses: ./.github/actions/dd-report")
     assert reports == 5
     assert WORKFLOW_TEXT.count("dd-site: ${{ vars.DD_SITE }}") == reports
+
+
+def test_third_party_actions_are_pinned_to_commit_shas() -> None:
+    """A tag can be moved; a commit cannot. Each pin names its release for review."""
+    uses = re.findall(r"uses: (\S+)(.*)", WORKFLOW_TEXT)
+    remote = [(ref, comment) for ref, comment in uses if not ref.startswith("./")]
+    assert {ref.split("@")[0] for ref, _ in remote} == {
+        "actions/checkout",
+        "azure/login",
+    }
+    assert sum(ref.startswith("azure/login@") for ref, _ in remote) == 2
+    for ref, comment in remote:
+        assert re.fullmatch(r"[\w.-]+/[\w.-]+@[0-9a-f]{40}", ref), ref
+        assert re.fullmatch(r"  # v\d+\.\d+\.\d+", comment), comment
