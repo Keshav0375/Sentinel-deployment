@@ -166,7 +166,10 @@ dd() {
   local args=(-sS --max-time 30 -X "$1" "${API}$2" -H @"${headers}"
     -o "${workdir}/response" -w '%{http_code}')
   [ $# -ge 3 ] && args+=(--data-binary @"$3")
-  curl "${args[@]}" || die "$1 $2: no response from Datadog."
+  # No response is not "not applied": a write can land after the connection drops
+  # (seen live — a synthetics POST created the test but never answered). Every
+  # write here is create-or-update by name, so a re-run reconciles it.
+  curl "${args[@]}" || die "$1 $2: no response from Datadog — it may have applied it anyway; re-run apply.sh (idempotent) to reconcile."
 }
 
 # write <method> <path> <body-file> <label> — the one place that changes Datadog.
