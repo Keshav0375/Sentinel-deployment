@@ -17,8 +17,9 @@ on:
   push:
     branches: [main]
 
+# No DD_SITE here: it is a `sentinel-dev` environment variable, which only the job sees,
+# so each dd-report step passes `vars.DD_SITE` itself.
 env:
-  DD_SITE: ${{ vars.DD_SITE }}
   DD_SERVICE: sentinel-watchtower
   DD_ENV: dev
 

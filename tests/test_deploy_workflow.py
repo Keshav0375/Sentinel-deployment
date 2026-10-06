@@ -337,3 +337,15 @@ def test_a_failed_metadata_step_still_records_an_insertable_row(tmp_path: Path) 
     assert values["sha"] == "a3f9c2e"
     assert values["status"] == "failed"
     assert values["stage"] == "build"
+
+
+# ---------------------------------------------------------------- Workflow shape
+
+
+def test_dd_site_comes_from_the_environment_on_every_report() -> None:
+    """Environment vars are invisible at workflow level: a top-level DD_SITE is always empty."""
+    workflow_env = WORKFLOW_TEXT.split("\nenv:\n", 1)[1].split("\n\n", 1)[0]
+    assert "DD_SITE" not in workflow_env
+    reports = WORKFLOW_TEXT.count("uses: ./.github/actions/dd-report")
+    assert reports == 5
+    assert WORKFLOW_TEXT.count("dd-site: ${{ vars.DD_SITE }}") == reports
