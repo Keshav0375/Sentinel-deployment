@@ -56,23 +56,43 @@ jobs:
         run: bash "$GITHUB_WORKSPACE/.github/scripts/deploy-metadata.sh"
 
       # Stage 2 — build. app/ + requirements.txt as a zip; Oryx installs on the server.
+      # Symlinks are refused (one would package whatever it points at on the runner), and
+      # `zip -y` stores any link as a link, never its target. File names come from the
+      # merged commit: every line of build output is printed behind `| `, because a line
+      # starting `::` would be read as a workflow command.
       - name: Build zip package
         id: build
         run: |
+          set_env="$GITHUB_WORKSPACE/.github/scripts/set-env.sh"
           log="$RUNNER_TEMP/build.log"
+          quote() { sed 's/^/| /'; }
+
+          links="$(find app requirements.txt -type l 2>/dev/null || true)"
+          if [[ -n "$links" ]]; then
+            { echo "refusing to package symlinks; app/ and requirements.txt must be regular files:"
+              head -n 20 <<<"$links"; } | bash "$set_env" BUILD_ERROR_OUTPUT
+            echo "::error title=build::$(wc -l <<<"$links" | tr -d ' ') symlink(s) in the package; refusing to build"
+            head -n 20 <<<"$links" | quote
+            exit 1
+          fi
+
           rc=0
           {
             mkdir -p deploy_package &&
               cp -r app/ deploy_package/app/ &&
               cp requirements.txt deploy_package/ &&
-              cd deploy_package && zip -r ../deploy.zip . && cd ..
+              cd deploy_package && zip -q -r -y ../deploy.zip . && cd ..
           } >"$log" 2>&1 || rc=$?
-          cat "$log"
+          quote <"$log"
           if ((rc != 0)); then
-            tail -c 3000 "$log" | bash "$GITHUB_WORKSPACE/.github/scripts/set-env.sh" BUILD_ERROR_OUTPUT
+            tail -c 3000 "$log" | bash "$set_env" BUILD_ERROR_OUTPUT
             echo "::error title=build::packaging failed (exit $rc)"
             exit "$rc"
           fi
+          # Listed via a file: `zipinfo | head` would SIGPIPE under pipefail on a long list.
+          zipinfo -1 deploy.zip >"$RUNNER_TEMP/deploy.list"
+          echo "deploy.zip: $(wc -l <"$RUNNER_TEMP/deploy.list" | tr -d ' ') entries"
+          head -n 50 "$RUNNER_TEMP/deploy.list" | quote
 
       # A checkout or metadata failure counts as the build stage: no package was built.
       - name: Report build failure
