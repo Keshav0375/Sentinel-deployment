@@ -121,6 +121,9 @@ jobs:
           tenant-id: ${{ secrets.AZURE_TENANT_ID }}
           subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
 
+      # The zip deploy FIRST, then APP_VERSION (the settings change restarts the app). If
+      # the zip/Oryx deploy fails, the old code keeps its old APP_VERSION, so verify's
+      # /version check still sees "old version serving" instead of a new label on old code.
       # `--output none` on the settings call: its default output lists every app setting.
       - name: Deploy to App Service
         id: deploy
@@ -130,16 +133,16 @@ jobs:
         run: |
           : "${AZURE_RG:?vars.AZURE_RG is not set on sentinel-dev}"
           : "${APP_NAME:?vars.APP_NAME is not set on sentinel-dev}"
-          az webapp config appsettings set \
-            --resource-group "$AZURE_RG" \
-            --name "$APP_NAME" \
-            --settings APP_VERSION="${APP_VERSION}" \
-            --output none
           az webapp deploy \
             --resource-group "$AZURE_RG" \
             --name "$APP_NAME" \
             --src-path deploy.zip \
             --type zip
+          az webapp config appsettings set \
+            --resource-group "$AZURE_RG" \
+            --name "$APP_NAME" \
+            --settings APP_VERSION="${APP_VERSION}" \
+            --output none
 
       - name: Report deploy failure
         if: >-

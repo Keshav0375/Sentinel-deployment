@@ -199,3 +199,33 @@ def test_build_failure_reports_the_error_output(tmp_path: Path) -> None:
     assert run.returncode != 0
     assert "requirements.txt" in run.env["BUILD_ERROR_OUTPUT"]
     assert_no_workflow_command(run.stdout, allowed=("::error title=build::",))
+
+
+# ---------------------------------------------------------------- Deploy to App Service
+
+DEPLOY_ENV = {
+    "AZURE_RG": "rg-sentinel-dev-cc",
+    "APP_NAME": "app-sentinel-dev-test",
+    "APP_VERSION": "pr-47-a3f9c2e",
+}
+
+
+def test_app_version_is_set_only_after_the_zip_deploy(tmp_path: Path) -> None:
+    run = run_step(tmp_path, "deploy", DEPLOY_ENV)
+
+    assert run.returncode == 0, run.stderr
+    target = "--resource-group rg-sentinel-dev-cc --name app-sentinel-dev-test"
+    assert run.calls == [
+        f"az webapp deploy {target} --src-path deploy.zip --type zip",
+        f"az webapp config appsettings set {target}"
+        + " --settings APP_VERSION=pr-47-a3f9c2e --output none",
+    ]
+
+
+def test_a_failed_zip_deploy_leaves_app_version_alone(tmp_path: Path) -> None:
+    """The old code keeps its old APP_VERSION, so verify can see it still serving."""
+    run = run_step(tmp_path, "deploy", {**DEPLOY_ENV, "STUB_FAIL_AZ": "webapp deploy"})
+
+    assert run.returncode == 3
+    assert len(run.calls) == 1
+    assert run.calls[0].startswith("az webapp deploy ")
