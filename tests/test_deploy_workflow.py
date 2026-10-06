@@ -229,3 +229,83 @@ def test_a_failed_zip_deploy_leaves_app_version_alone(tmp_path: Path) -> None:
     assert run.returncode == 3
     assert len(run.calls) == 1
     assert run.calls[0].startswith("az webapp deploy ")
+
+
+# ---------------------------------------------------------------- Record deployment
+
+RECORD_ENV = {
+    "CHECKOUT_OUTCOME": "success",
+    "META_OUTCOME": "success",
+    "BUILD_OUTCOME": "success",
+    "LOGIN_OUTCOME": "success",
+    "DEPLOY_OUTCOME": "success",
+    "VERIFY_OUTCOME": "failure",
+    "LOGIN_RECORD_OUTCOME": "success",
+    "PG_HOST": "psql-sentinel-dev.postgres.database.azure.com",
+    "PG_DATABASE": "sentinel",
+    "PG_USER": "gha-app",
+    "DD_SERVICE": "sentinel-watchtower",
+    "DD_ENV": "dev",
+    "RUN_URL": "https://github.com/Keshav0375/Sentinel-deployment/actions/runs/99",
+    "GITHUB_RUN_ID": "99",
+    "GITHUB_SHA": "a3f9c2e" + "0" * 33,
+    "PR_NUMBER": "47",
+    "SHORT_SHA": "a3f9c2e",
+    "PR_AUTHOR": "Keshav0375",
+    "PR_TITLE": "feat: add retry config",
+    "FILES_CHANGED_JSON": '["app/main.py"]',
+    "APP_VERSION": "pr-47-a3f9c2e",
+    "DEPLOY_STARTED_AT": "1",
+}
+
+
+def psql_vars(run: Run) -> dict[str, str]:
+    psql = next(call for call in run.calls if call.startswith("psql "))
+    return dict(re.findall(r"-v (\w+)=(\S*)", psql))
+
+
+def test_record_inserts_every_value_as_a_psql_variable(tmp_path: Path) -> None:
+    run = run_step(tmp_path, "record", RECORD_ENV)
+
+    assert run.returncode == 0, run.stderr
+    assert run.calls[0] == (
+        "az account get-access-token --resource-type oss-rdbms --query accessToken -o tsv"
+    )
+    assert psql_vars(run) == {
+        "ON_ERROR_STOP": "1",
+        "service": "sentinel-watchtower",
+        "pr": "47",
+        "sha": "a3f9c2e",
+        "author": "Keshav0375",
+        "status": "failed",
+        "run": "99",
+        "files": '["app/main.py"]',
+        "stage": "verify",
+        "version": "pr-47-a3f9c2e",
+    }
+    assert "INSERT INTO deployments" in run.calls
+    assert run.env["STATUS"] == "failed"
+
+
+def test_a_failed_re_login_is_a_record_failure_not_a_status_change(
+    tmp_path: Path,
+) -> None:
+    run = run_step(
+        tmp_path,
+        "record",
+        {**RECORD_ENV, "VERIFY_OUTCOME": "success", "LOGIN_RECORD_OUTCOME": "failure"},
+    )
+
+    assert run.returncode == 1
+    assert run.calls == [], "no token exchange, no psql after a failed re-login"
+    assert run.env["RECORD_ERROR"].startswith("Azure re-login before the record failed")
+    assert run.env["STATUS"] == "succeeded"
+    assert run.env["FAILED_STAGE"] == "none"
+
+
+def test_a_failed_insert_reports_the_psql_error(tmp_path: Path) -> None:
+    run = run_step(tmp_path, "record", {**RECORD_ENV, "STUB_FAIL_PSQL": "host="})
+
+    assert run.returncode == 3
+    assert "psql: stubbed failure" in run.env["RECORD_ERROR"]
+    assert run.env["RECORD_ERROR"].endswith(f"Run {RECORD_ENV['RUN_URL']}")

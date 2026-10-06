@@ -206,6 +206,19 @@ jobs:
           dd-api-key: ${{ secrets.DD_API_KEY }}
           dd-site: ${{ vars.DD_SITE }}
 
+      # A fresh OIDC assertion for the record's oss-rdbms token exchange: the first login's
+      # can expire during a slow deploy + verify. continue-on-error, and the record step
+      # checks its outcome: a failed re-login is a record failure, never a deploy failure.
+      - name: Login to Azure for the record
+        id: login_record
+        if: always()
+        continue-on-error: true
+        uses: azure/login@v2
+        with:
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+
       # Stage 5 — record every attempt, failed ones most of all (§3.1). The verdict is
       # computed first, so the summary has it even when the INSERT fails. Entra DB token as
       # the password — no DB credential anywhere. Until backend phase 1 creates
@@ -221,6 +234,7 @@ jobs:
           LOGIN_OUTCOME: ${{ steps.login.outcome }}
           DEPLOY_OUTCOME: ${{ steps.deploy.outcome }}
           VERIFY_OUTCOME: ${{ steps.verify.outcome }}
+          LOGIN_RECORD_OUTCOME: ${{ steps.login_record.outcome }}
           PG_HOST: ${{ vars.PG_HOST }}
           PG_DATABASE: ${{ vars.PG_DATABASE }}
           PG_USER: ${{ vars.PG_USER }}
@@ -229,6 +243,12 @@ jobs:
           read -r STATUS FAILED_STAGE < <(bash "$scripts/deploy-status.sh")
           echo "The record step stopped before the INSERT ran; see the run log. Run ${RUN_URL}" |
             bash "$scripts/set-env.sh" RECORD_ERROR
+          if [[ "${LOGIN_RECORD_OUTCOME}" != success ]]; then
+            { echo "Azure re-login before the record failed (${LOGIN_RECORD_OUTCOME:-not run}):"
+              echo "no DB token, no row written. Run ${RUN_URL}"; } | bash "$scripts/set-env.sh" RECORD_ERROR
+            echo "::error title=record::Azure re-login failed; the deployments row was not written"
+            exit 1
+          fi
 
           : "${PG_HOST:?vars.PG_HOST is not set on sentinel-dev}"
           : "${PG_DATABASE:?vars.PG_DATABASE is not set on sentinel-dev}"
