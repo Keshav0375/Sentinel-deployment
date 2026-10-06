@@ -10,6 +10,7 @@ flow and the secret handling are exercised without a network. Needs bash and jq.
 import json
 import os
 import re
+import shutil
 import subprocess
 from dataclasses import dataclass
 from pathlib import Path
@@ -72,14 +73,18 @@ def test_webhook_body_renders_to_the_flat_contract():
     for var, sample in SAMPLES.items():
         rendered = rendered.replace(var, sample)
     body = json.loads(rendered)
-    assert body == {
-        "title": SAMPLES["$EVENT_TITLE"],
-        "tags": SAMPLES["$TAGS"],
-        "alert_transition": "Triggered",
-        "link": SAMPLES["$LINK"],
-        "alert_id": "1234",  # the Event Grid input mapping's `subject`
-        "date": SAMPLES["$DATE"],
-    }
+    # Event Grid's publish API takes an array of events, CustomEventSchema topics included:
+    # a bare object is rejected. One alert is one event.
+    assert body == [
+        {
+            "title": SAMPLES["$EVENT_TITLE"],
+            "tags": SAMPLES["$TAGS"],
+            "alert_transition": "Triggered",
+            "link": SAMPLES["$LINK"],
+            "alert_id": "1234",  # the Event Grid input mapping's `subject`
+            "date": SAMPLES["$DATE"],
+        }
+    ]
     assert "$" not in rendered
 
 
@@ -241,6 +246,7 @@ def run_apply(
     *args: str,
     env_lines: tuple[str, ...] | None = None,
     curl: str = STUB_CURL,
+    apply: Path = APPLY,
     **stub_env: str,
 ) -> Run:
     stub_bin = tmp_path / "bin"
@@ -279,7 +285,7 @@ def run_apply(
     proc = subprocess.run(
         [
             "bash",
-            str(APPLY),
+            str(apply),
             "--env-file",
             str(env_file),
             "--infra-dir",
@@ -376,7 +382,10 @@ def test_first_apply_creates_everything(tmp_path):
     ].body
     assert webhook["url"] == ENDPOINT
     assert json.loads(webhook["custom_headers"]) == {"aeg-sas-key": EG_KEY}
-    assert json.loads(webhook["payload"]) == load(WEBHOOK)["payload"]
+    payload = json.loads(webhook["payload"])
+    assert payload == load(WEBHOOK)["payload"]
+    assert isinstance(payload, list) and len(payload) == 1
+    assert payload[0]["alert_id"] == "$ALERT_ID"
     assert webhook["encode_as"] == "json"
 
     assert writes[("POST", "/api/v1/monitor")].body == load(DEPLOY_FAILURE)
@@ -457,3 +466,18 @@ if [[ "$m" == GET ]]; then echo '{"tests":[]}' >"$out"; printf 404; else echo '{
     assert run.returncode != 0
     assert "returned HTTP 400" in run.output
     assert "applied." not in run.output
+
+
+def test_an_object_payload_is_refused_before_any_write(tmp_path):
+    """Event Grid rejects a bare object; apply.sh must refuse it, not ship it."""
+    copy = tmp_path / "repo" / "datadog"
+    shutil.copytree(DATADOG, copy)
+    webhook = load(copy / "webhook.json")
+    webhook["payload"] = webhook["payload"][0]
+    (copy / "webhook.json").write_text(json.dumps(webhook))
+
+    run = run_apply(tmp_path, apply=copy / "apply.sh")
+
+    assert run.returncode == 1
+    assert "payload must be a one-element array" in run.output
+    assert run.writes() == []

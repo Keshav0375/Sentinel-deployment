@@ -186,13 +186,20 @@ write() {
 # ── 1. Webhook ───────────────────────────────────────────────────────────────
 # Datadog stores payload and custom_headers as JSON *strings*. The key is read
 # from its file by jq, so it is in the body file (0600) and nowhere else.
+# Event Grid's publish API takes an ARRAY of events, CustomEventSchema topics
+# included, so the payload must be a one-element array of the flat object;
+# anything else is refused here rather than rejected by Event Grid at alert time.
 apply_webhook() {
   local body="${workdir}/webhook.body" base="/api/v1/integration/webhooks/configuration/webhooks"
-  jq --arg url "${ENDPOINT}" --rawfile key "${eg_key}" '
-      .url = $url
+  jq -e --arg url "${ENDPOINT}" --rawfile key "${eg_key}" '
+      if (.payload | type) == "array" and (.payload | length) == 1
+         and (.payload[0] | type) == "object"
+      then . else error("payload must be a one-element array of one event object") end
+      | .url = $url
       | .payload |= tojson
       | .custom_headers = ({"aeg-sas-key": $key} | tojson)
-    ' "${DIR}/webhook.json" >"${body}"
+    ' "${DIR}/webhook.json" >"${body}" \
+    || die "${DIR}/webhook.json: payload must be a one-element array of one event object (Event Grid takes an array)."
   echo "webhook ${WEBHOOK_NAME}  → ${ENDPOINT}"
   if [ "${DRY_RUN}" -eq 1 ]; then
     jq --arg len "$(wc -c <"${eg_key}" | tr -d ' ')" \

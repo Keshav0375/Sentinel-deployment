@@ -46,12 +46,17 @@ one appears.
 
 ## Webhook body contract
 
-The webhook posts flat JSON with the header `aeg-sas-key: <topic key>`:
+The webhook posts a one-element JSON array holding one flat object, with the
+header `aeg-sas-key: <topic key>`:
 
 ```json
-{"title":"$EVENT_TITLE","tags":"$TAGS","alert_transition":"$ALERT_TRANSITION",
- "link":"$LINK","alert_id":"$ALERT_ID","date":"$DATE"}
+[{"title":"$EVENT_TITLE","tags":"$TAGS","alert_transition":"$ALERT_TRANSITION",
+  "link":"$LINK","alert_id":"$ALERT_ID","date":"$DATE"}]
 ```
+
+Event Grid's publish API only accepts an array of events, and that holds for
+CustomEventSchema topics too. It rejects a bare object. `apply.sh` refuses a
+payload that is not a one-element array.
 
 Datadog has no ISO-8601 date variable, so it cannot build an Event Grid schema
 event itself. The topic is created with a **CustomEventSchema** input mapping in
@@ -60,7 +65,7 @@ Sentinel-infra:
 - `subject` comes from `alert_id`.
 - `eventType` defaults to `datadog.monitor` and `dataVersion` to `1`.
 - Event Grid stamps `id` and `eventTime` itself.
-- The whole body becomes the event's `data`.
+- The flat object (the array's one element) becomes the event's `data`.
 
 `$DATE` is epoch milliseconds and is kept only for reference. Titles and tags are
 substituted into JSON strings unescaped, so keep monitor and test names free of
