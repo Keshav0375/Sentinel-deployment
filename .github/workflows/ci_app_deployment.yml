@@ -250,6 +250,12 @@ jobs:
             exit 1
           fi
 
+          # A failed metadata step left these unset: defaults that keep the row insertable
+          # (`:'pr'::int` and `:'files'::jsonb` reject an empty string).
+          PR_NUMBER="${PR_NUMBER:-0}"
+          FILES_CHANGED_JSON="${FILES_CHANGED_JSON:-[]}"
+          SHORT_SHA="${SHORT_SHA:-${GITHUB_SHA:0:7}}"
+
           : "${PG_HOST:?vars.PG_HOST is not set on sentinel-dev}"
           : "${PG_DATABASE:?vars.PG_DATABASE is not set on sentinel-dev}"
           : "${PG_USER:?vars.PG_USER is not set on sentinel-dev}"

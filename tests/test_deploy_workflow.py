@@ -309,3 +309,31 @@ def test_a_failed_insert_reports_the_psql_error(tmp_path: Path) -> None:
     assert run.returncode == 3
     assert "psql: stubbed failure" in run.env["RECORD_ERROR"]
     assert run.env["RECORD_ERROR"].endswith(f"Run {RECORD_ENV['RUN_URL']}")
+
+
+METADATA_KEYS = {
+    "PR_NUMBER",
+    "SHORT_SHA",
+    "PR_AUTHOR",
+    "PR_TITLE",
+    "FILES_CHANGED_JSON",
+    "APP_VERSION",
+    "DEPLOY_STARTED_AT",
+}
+
+
+def test_a_failed_metadata_step_still_records_an_insertable_row(tmp_path: Path) -> None:
+    env = {k: v for k, v in RECORD_ENV.items() if k not in METADATA_KEYS}
+    run = run_step(
+        tmp_path,
+        "record",
+        {**env, "META_OUTCOME": "failure", "BUILD_OUTCOME": "skipped"},
+    )
+
+    assert run.returncode == 0, run.stderr
+    values = psql_vars(run)
+    assert values["pr"] == "0"
+    assert values["files"] == "[]"
+    assert values["sha"] == "a3f9c2e"
+    assert values["status"] == "failed"
+    assert values["stage"] == "build"
