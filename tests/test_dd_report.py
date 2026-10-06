@@ -244,3 +244,39 @@ def test_unknown_alert_type_skips_the_event_but_not_the_log(tmp_path: Path) -> N
         f"https://http-intake.logs.{SITE}/api/v2/logs"
     ]
     assert "alert-type 'success' is not info|error" in run.output
+
+
+@pytest.mark.parametrize(("curl_exit", "attempts"), [("6", 3), ("7", 3)])
+def test_a_request_that_never_left_is_retried(
+    tmp_path: Path, curl_exit: str, attempts: int
+) -> None:
+    run = run_action(tmp_path, STUB_STATUS="000", STUB_EXIT=curl_exit)
+
+    assert run.returncode == 0
+    assert len(run.calls) == attempts
+    assert all(call.url == f"https://api.{SITE}/api/v1/events" for call in run.calls)
+    assert f"event POST failed (HTTP 000, curl exit {curl_exit})" in run.output
+    assert all("--retry" not in call.argv for call in run.calls)
+
+
+@pytest.mark.parametrize(
+    ("status", "curl_exit"),
+    [("000", "28"), ("500", "22"), ("503", "22"), ("429", "22")],
+)
+def test_a_timeout_or_http_error_is_never_retried(
+    tmp_path: Path, status: str, curl_exit: str
+) -> None:
+    """Datadog may already hold the event: a second POST would duplicate it."""
+    run = run_action(
+        tmp_path,
+        STUB_STATUS=status,
+        STUB_EXIT=curl_exit,
+        DD_LOG_PAYLOAD='{"message": "x"}',
+    )
+
+    assert run.returncode == 0
+    assert [call.url for call in run.calls] == [
+        f"https://api.{SITE}/api/v1/events",
+        f"https://http-intake.logs.{SITE}/api/v2/logs",
+    ]
+    assert f"event POST failed (HTTP {status}, curl exit {curl_exit})" in run.output

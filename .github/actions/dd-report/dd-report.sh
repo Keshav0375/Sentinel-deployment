@@ -51,9 +51,23 @@ printf 'DD-API-KEY: %s\nContent-Type: application/json\n' "$DD_API_KEY" >"$heade
 
 # post <url> <body-file> <response-file> — prints the HTTP status (000 when none came back);
 # returns curl's exit code.
+#
+# Retried only when the request never left the runner: curl exit 6 (host not resolved) or
+# 7 (could not connect). Never on a timeout or an HTTP error — Datadog may already have
+# taken the event, and a retry would post it twice. curl's own --retry would retry both.
 post() {
-  curl -sS --fail-with-body --retry 2 --max-time 15 \
-    -X POST "$1" -H @"$headers" --data-binary @"$2" -o "$3" -w '%{http_code}'
+  local attempt status rc
+  for attempt in 1 2 3; do
+    rc=0
+    status="$(curl -sS --fail-with-body --max-time 15 \
+      -X POST "$1" -H @"$headers" --data-binary @"$2" -o "$3" -w '%{http_code}')" || rc=$?
+    if ((rc != 6 && rc != 7)) || ((attempt == 3)); then
+      break
+    fi
+    sleep 1
+  done
+  printf '%s' "$status"
+  return "$rc"
 }
 
 send_dd_event() {
