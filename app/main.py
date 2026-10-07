@@ -34,6 +34,7 @@ def startup_record(config: AppConfig) -> dict[str, str]:
 
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncIterator[None]:
+    raise RuntimeError("cache warm-up failed: no cache backend configured")
     print(json.dumps(startup_record(settings)), flush=True)
     yield
 
