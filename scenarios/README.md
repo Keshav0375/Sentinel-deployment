@@ -64,4 +64,6 @@ git fetch origin
 .venv/bin/pytest tests/test_scenarios.py
 ```
 
-Without them those checks skip and say why; the schema checks still run.
+A branch that is on origin but not fetched fails the check, and so does one missing from
+origin. Only when origin cannot be reached does a local branch stand in. With no scenario
+refs at all, those checks skip and say why, and the schema checks still run.

@@ -15,10 +15,13 @@ that boots but answers verify wrongly fails verify. Packaging and requirements f
 never reach app code, so their trees are checked for what the build step or Oryx trips
 on.
 
-Without the scenario refs (a fresh clone that never fetched them) the branch checks
-skip and say why. A partial set fails: the catalog and origin must agree.
+A branch is read from `origin/<branch>`. When that ref is missing, origin is asked
+(`git ls-remote`, only then): on origin but not fetched fails, and so does absent from
+origin. Only when origin cannot be reached (offline, no auth) does a local branch stand
+in; with no scenario refs at all the branch checks skip and say why.
 """
 
+import functools
 import importlib.metadata
 import io
 import json
@@ -158,18 +161,47 @@ MAIN = _resolve("main")
 SCENARIO_SHAS = {branch: _resolve(branch) for branch in BY_BRANCH}
 
 
+@functools.cache
+def _origin_heads() -> set[str] | None:
+    """origin's branch names, or None when origin cannot be asked (offline, no auth)."""
+    try:
+        proc = subprocess.run(
+            ["git", "-C", str(ROOT), "ls-remote", "--heads", "origin"],
+            capture_output=True,
+            text=True,
+            timeout=30,
+            check=False,
+            env={**os.environ, "GIT_TERMINAL_PROMPT": "0"},
+        )
+    except (OSError, subprocess.TimeoutExpired):
+        return None
+    if proc.returncode != 0:
+        return None
+    return {
+        line.split("\trefs/heads/", 1)[1]
+        for line in proc.stdout.splitlines()
+        if "\trefs/heads/" in line
+    }
+
+
 @pytest.fixture
 def sha(request) -> str:
     branch = request.node.callspec.params["branch"]
     if MAIN is None:
         pytest.skip("no main ref: not a git checkout, or main was never fetched")
+    fetched = REFS.get(f"refs/remotes/origin/{branch}")
+    if fetched:
+        return fetched
+    heads = _origin_heads()
+    if heads is not None:
+        if branch in heads:
+            pytest.fail(f"{branch} is on origin but not fetched: run `git fetch origin`")
+        pytest.fail(f"{branch} is in branches.yaml but not on origin")
+    if SCENARIO_SHAS[branch]:  # origin unreachable: the local branch stands in
+        return SCENARIO_SHAS[branch]
     if not any(SCENARIO_SHAS.values()):
-        pytest.skip(
-            "no scenario refs locally; run `git fetch origin` to check the branches"
-        )
-    if SCENARIO_SHAS[branch] is None:
-        pytest.fail(f"{branch} is in branches.yaml but not on origin or local")
-    return SCENARIO_SHAS[branch]
+        pytest.skip("no scenario refs locally and origin unreachable")
+    pytest.fail(f"{branch} is in branches.yaml but has no ref, local or origin")
 
 
 BRANCHES = pytest.mark.parametrize("branch", list(BY_BRANCH))
