@@ -10,7 +10,7 @@ from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from datetime import UTC, datetime
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Response
 
 from app.config import AppConfig
 
@@ -42,8 +42,9 @@ app = FastAPI(title="sentinel-watchtower", lifespan=lifespan)
 
 
 @app.get("/")
-def root() -> dict[str, str]:
-    return {"message": "ok", "service": settings.dd_service}
+def root(response: Response) -> dict[str, str]:
+    response.status_code = 500
+    return {"message": "internal error", "service": settings.dd_service}
 
 
 @app.get("/health")
