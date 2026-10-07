@@ -18,6 +18,11 @@ settings = AppConfig()
 _started_at = time.monotonic()
 
 
+def uptime_seconds() -> int:
+    """Whole seconds since this process loaded the app."""
+    return int(time.monotonic() - _started_at)
+
+
 def startup_record(config: AppConfig) -> dict[str, str]:
     """The `app.startup` log line, keyed exactly as deployment §2.2."""
     now = datetime.now(UTC).isoformat(timespec="milliseconds")
@@ -48,7 +53,7 @@ def root() -> dict[str, str]:
 
 @app.get("/health")
 def health() -> dict[str, str | int]:
-    return {"status": "ok", "uptime_seconds": int(time.monotonic() - _started_at)}
+    return {"status": "ok", "uptime_seconds": uptime_seconds()}
 
 
 @app.get("/version")
