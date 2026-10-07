@@ -1,0 +1,18 @@
+{
+  "name": "sentinel-event-grid",
+  "url": "__EVENT_GRID_ENDPOINT__",
+  "encode_as": "json",
+  "custom_headers": {
+    "aeg-sas-key": "__EVENT_GRID_KEY__"
+  },
+  "payload": [
+    {
+      "title": "$EVENT_TITLE",
+      "tags": "$TAGS",
+      "alert_transition": "$ALERT_TRANSITION",
+      "link": "$LINK",
+      "alert_id": "$ALERT_ID",
+      "date": "$DATE"
+    }
+  ]
+}

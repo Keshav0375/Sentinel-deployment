@@ -1,0 +1,52 @@
+# One Datadog reporter for every pipeline stage (deployment §3.2): an event to the
+# Events API and, when a structured payload is given, a log line to the log intake.
+#
+# Fail soft: a reporting failure prints a ::warning:: and never fails the calling job.
+# Inputs reach the script through env only, never as inline expressions in `run:`;
+# titles and texts carry PR titles and commit messages.
+name: dd-report
+description: Send a Datadog event (and optionally a structured log) for a pipeline stage.
+
+inputs:
+  title:
+    description: Event title.
+    required: true
+  text:
+    description: Event body text.
+    required: true
+  tags:
+    description: Comma-separated Datadog tags, e.g. `service:sentinel-watchtower,env:dev`.
+    required: true
+  alert-type:
+    description: Event alert type, `info` or `error`.
+    required: true
+  log-payload:
+    description: Optional JSON object sent as one log to the log intake. Empty skips the log.
+    required: false
+    default: ""
+  dd-api-key:
+    description: Datadog API key. Masked before any request is made.
+    required: true
+  dd-site:
+    description: Datadog site, e.g. `us5.datadoghq.com`. No default; a wrong site fails as a silent 403.
+    required: true
+
+outputs:
+  event-id:
+    description: ID of the created Datadog event, empty when the event was not sent.
+    value: ${{ steps.report.outputs.event-id }}
+
+runs:
+  using: composite
+  steps:
+    - id: report
+      shell: bash
+      env:
+        DD_TITLE: ${{ inputs.title }}
+        DD_TEXT: ${{ inputs.text }}
+        DD_TAGS: ${{ inputs.tags }}
+        DD_ALERT_TYPE: ${{ inputs.alert-type }}
+        DD_LOG_PAYLOAD: ${{ inputs.log-payload }}
+        DD_API_KEY: ${{ inputs.dd-api-key }}
+        DD_SITE: ${{ inputs.dd-site }}
+      run: bash "${GITHUB_ACTION_PATH}/dd-report.sh"

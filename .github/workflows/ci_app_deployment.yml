@@ -1,0 +1,320 @@
+# The deploy pipeline (deployment §3.1, §3.3): every push to main — a merged PR — is
+# built, shipped to App Service, verified, recorded in Sentinel's `deployments` table and
+# reported to Datadog. Build → Deploy → Verify → Record → Summary.
+#
+# Every stage reports: a failed stage sends one `deploy_status:failed` event for that stage,
+# and the summary always sends the final event plus the `deploy.completed` log (§6.1/§6.2).
+# STATUS is exactly `succeeded` | `failed`, the same value for the Datadog tag and
+# `deployments.deploy_status`. A failed record is reported as `stage:record` and never
+# changes STATUS: the run's colour describes the deploy, not the bookkeeping.
+#
+# Attacker-influenced strings (commit message, author, PR title, file list) reach shell only
+# through `env:`, never as `${{ }}` inside `run:`; SQL values go in as psql variables only.
+# Resource names come from the `sentinel-dev` environment's vars (§3.4), never from here.
+name: "[deployment] deploy — build and ship"
+
+on:
+  push:
+    branches: [main]
+
+# No DD_SITE here: it is a `sentinel-dev` environment variable, which only the job sees,
+# so each dd-report step passes `vars.DD_SITE` itself.
+env:
+  DD_SERVICE: sentinel-watchtower
+  DD_ENV: dev
+
+permissions:
+  id-token: write  # OIDC token for azure/login
+  contents: read
+
+concurrency:
+  group: deploy-sentinel-dev
+  cancel-in-progress: false  # never abort a half-finished deploy
+
+jobs:
+  build-deploy-verify:
+    name: Build Deploy and Verify
+    runs-on: ubuntu-latest
+    environment: sentinel-dev  # the only subject gha-app federates on; main-only policy
+    env:
+      RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+    steps:
+      # Stage 1 — checkout + metadata. Depth 2: the merge commit and its first parent, for
+      # the files-changed list.
+      - name: Checkout
+        id: checkout
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262  # v4.4.0
+        with:
+          fetch-depth: 2
+          persist-credentials: false
+
+      - name: Extract PR metadata
+        id: meta
+        env:
+          COMMIT_MESSAGE: ${{ github.event.head_commit.message }}
+          COMMIT_AUTHOR_USERNAME: ${{ github.event.head_commit.author.username }}
+          COMMIT_AUTHOR_NAME: ${{ github.event.head_commit.author.name }}
+        run: bash "$GITHUB_WORKSPACE/.github/scripts/deploy-metadata.sh"
+
+      # Stage 2 — build. app/ + requirements.txt as a zip; Oryx installs on the server.
+      # Symlinks are refused (one would package whatever it points at on the runner), and
+      # `zip -y` stores any link as a link, never its target. File names come from the
+      # merged commit: every line of build output is printed behind `| `, because a line
+      # starting `::` would be read as a workflow command.
+      - name: Build zip package
+        id: build
+        run: |
+          set_env="$GITHUB_WORKSPACE/.github/scripts/set-env.sh"
+          log="$RUNNER_TEMP/build.log"
+          quote() { sed 's/^/| /'; }
+
+          links="$(find app requirements.txt -type l 2>/dev/null || true)"
+          if [[ -n "$links" ]]; then
+            { echo "refusing to package symlinks; app/ and requirements.txt must be regular files:"
+              head -n 20 <<<"$links"; } | bash "$set_env" BUILD_ERROR_OUTPUT
+            echo "::error title=build::$(wc -l <<<"$links" | tr -d ' ') symlink(s) in the package; refusing to build"
+            head -n 20 <<<"$links" | quote
+            exit 1
+          fi
+
+          rc=0
+          {
+            mkdir -p deploy_package &&
+              cp -r app/ deploy_package/app/ &&
+              cp requirements.txt deploy_package/ &&
+              cd deploy_package && zip -q -r -y ../deploy.zip . && cd ..
+          } >"$log" 2>&1 || rc=$?
+          quote <"$log"
+          if ((rc != 0)); then
+            tail -c 3000 "$log" | bash "$set_env" BUILD_ERROR_OUTPUT
+            echo "::error title=build::packaging failed (exit $rc)"
+            exit "$rc"
+          fi
+          # Listed via a file: `zipinfo | head` would SIGPIPE under pipefail on a long list.
+          zipinfo -1 deploy.zip >"$RUNNER_TEMP/deploy.list"
+          echo "deploy.zip: $(wc -l <"$RUNNER_TEMP/deploy.list" | tr -d ' ') entries"
+          head -n 50 "$RUNNER_TEMP/deploy.list" | quote
+
+      # A checkout or metadata failure counts as the build stage: no package was built.
+      - name: Report build failure
+        if: >-
+          failure() && (steps.checkout.outcome == 'failure' || steps.meta.outcome == 'failure'
+          || steps.build.outcome == 'failure')
+        uses: ./.github/actions/dd-report
+        with:
+          title: "Build FAILED for PR #${{ env.PR_NUMBER }}: ${{ env.PR_TITLE }}"
+          text: ${{ env.BUILD_ERROR_OUTPUT || format('Build stopped before packaging. Run {0}', env.RUN_URL) }}
+          tags: >-
+            version:${{ env.APP_VERSION }},service:${{ env.DD_SERVICE }},env:${{ env.DD_ENV }},
+            stage:build,deploy_status:failed,failed_stage:build
+          alert-type: error
+          dd-api-key: ${{ secrets.DD_API_KEY }}
+          dd-site: ${{ vars.DD_SITE }}
+
+      # Stage 3 — deploy. OIDC as gha-app; no client secret exists (§3.4). The login also
+      # runs after a failed build so the record stage can still write that deploy's row.
+      - name: Login to Azure
+        id: login
+        if: always()
+        uses: azure/login@7184910d9eb2b1c5e48f7073824a90609bb9b6d6  # v2.3.1
+        with:
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+
+      # The zip deploy FIRST, then APP_VERSION (the settings change restarts the app). If
+      # the zip/Oryx deploy fails, the old code keeps its old APP_VERSION, so verify's
+      # /version check still sees "old version serving" instead of a new label on old code.
+      # `--output none` on the settings call: its default output lists every app setting.
+      - name: Deploy to App Service
+        id: deploy
+        env:
+          AZURE_RG: ${{ vars.AZURE_RG }}
+          APP_NAME: ${{ vars.APP_NAME }}
+        run: |
+          : "${AZURE_RG:?vars.AZURE_RG is not set on sentinel-dev}"
+          : "${APP_NAME:?vars.APP_NAME is not set on sentinel-dev}"
+          az webapp deploy \
+            --resource-group "$AZURE_RG" \
+            --name "$APP_NAME" \
+            --src-path deploy.zip \
+            --type zip
+          az webapp config appsettings set \
+            --resource-group "$AZURE_RG" \
+            --name "$APP_NAME" \
+            --settings APP_VERSION="${APP_VERSION}" \
+            --output none
+
+      - name: Report deploy failure
+        if: >-
+          failure() && steps.build.outcome == 'success'
+          && (steps.login.outcome == 'failure' || steps.deploy.outcome == 'failure')
+        uses: ./.github/actions/dd-report
+        with:
+          title: "Deploy FAILED for PR #${{ env.PR_NUMBER }}: ${{ env.PR_TITLE }}"
+          text: >-
+            Deploy of ${{ env.APP_VERSION }} failed (azure login: ${{ steps.login.outcome }},
+            zip deploy: ${{ steps.deploy.outcome }}). The previous version stays live. Run ${{ env.RUN_URL }}
+          tags: >-
+            version:${{ env.APP_VERSION }},service:${{ env.DD_SERVICE }},env:${{ env.DD_ENV }},
+            stage:deploy,deploy_status:failed,failed_stage:deploy
+          alert-type: error
+          dd-api-key: ${{ secrets.DD_API_KEY }}
+          dd-site: ${{ vars.DD_SITE }}
+
+      # Stage 4 — verify. F1 cold starts take 30–60s: wait, then /health ×3, then /version.
+      - name: Verify deployment
+        id: verify
+        env:
+          DEPLOYED_APP_URL: ${{ vars.DEPLOYED_APP_URL }}
+        run: |
+          : "${DEPLOYED_APP_URL:?vars.DEPLOYED_APP_URL is not set on sentinel-dev}"
+          set_env="$GITHUB_WORKSPACE/.github/scripts/set-env.sh"
+          sleep 30
+          healthy=false
+          for i in 1 2 3; do
+            if curl -sf --max-time 60 "${DEPLOYED_APP_URL}/health" >/dev/null; then
+              healthy=true
+              break
+            fi
+            echo "health check $i/3 failed"
+            sleep 10
+          done
+          if [[ "$healthy" != true ]]; then
+            echo "/health did not answer 2xx after 3 attempts" | bash "$set_env" VERIFY_ERROR
+            echo "::error title=verify::/health did not answer 2xx after 3 attempts"
+            exit 1
+          fi
+          live_version="$(curl -sf --max-time 60 "${DEPLOYED_APP_URL}/version" | jq -r '.version')" || live_version=""
+          if [[ "$live_version" != "${APP_VERSION}" ]]; then
+            echo "version mismatch: /version is '${live_version:0:100}', expected '${APP_VERSION}'" |
+              bash "$set_env" VERIFY_ERROR
+            echo "::error title=verify::/version does not report ${APP_VERSION}; the old version is still serving"
+            exit 1
+          fi
+          echo "live: ${live_version}"
+
+      - name: Report verify failure
+        if: failure() && steps.verify.outcome == 'failure'
+        uses: ./.github/actions/dd-report
+        with:
+          title: "Verify FAILED for PR #${{ env.PR_NUMBER }}: ${{ env.PR_TITLE }}"
+          text: "${{ env.VERIFY_ERROR || 'Verify failed.' }} Run ${{ env.RUN_URL }}"
+          tags: >-
+            version:${{ env.APP_VERSION }},service:${{ env.DD_SERVICE }},env:${{ env.DD_ENV }},
+            stage:verify,deploy_status:failed,failed_stage:verify
+          alert-type: error
+          dd-api-key: ${{ secrets.DD_API_KEY }}
+          dd-site: ${{ vars.DD_SITE }}
+
+      # A fresh OIDC assertion for the record's oss-rdbms token exchange: the first login's
+      # can expire during a slow deploy + verify. continue-on-error, and the record step
+      # checks its outcome: a failed re-login is a record failure, never a deploy failure.
+      - name: Login to Azure for the record
+        id: login_record
+        if: always()
+        continue-on-error: true
+        uses: azure/login@7184910d9eb2b1c5e48f7073824a90609bb9b6d6  # v2.3.1
+        with:
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+
+      # Stage 5 — record every attempt, failed ones most of all (§3.1). The verdict is
+      # computed first, so the summary has it even when the INSERT fails. Entra DB token as
+      # the password — no DB credential anywhere. Until backend phase 1 creates
+      # `deployments` this fails with `relation "deployments" does not exist`; expected.
+      - name: Record deployment in PostgreSQL
+        id: record
+        if: always()
+        continue-on-error: true
+        env:
+          CHECKOUT_OUTCOME: ${{ steps.checkout.outcome }}
+          META_OUTCOME: ${{ steps.meta.outcome }}
+          BUILD_OUTCOME: ${{ steps.build.outcome }}
+          LOGIN_OUTCOME: ${{ steps.login.outcome }}
+          DEPLOY_OUTCOME: ${{ steps.deploy.outcome }}
+          VERIFY_OUTCOME: ${{ steps.verify.outcome }}
+          LOGIN_RECORD_OUTCOME: ${{ steps.login_record.outcome }}
+          PG_HOST: ${{ vars.PG_HOST }}
+          PG_DATABASE: ${{ vars.PG_DATABASE }}
+          PG_USER: ${{ vars.PG_USER }}
+        run: |
+          scripts="$GITHUB_WORKSPACE/.github/scripts"
+          read -r STATUS FAILED_STAGE < <(bash "$scripts/deploy-status.sh")
+          echo "The record step stopped before the INSERT ran; see the run log. Run ${RUN_URL}" |
+            bash "$scripts/set-env.sh" RECORD_ERROR
+          if [[ "${LOGIN_RECORD_OUTCOME}" != success ]]; then
+            { echo "Azure re-login before the record failed (${LOGIN_RECORD_OUTCOME:-not run}):"
+              echo "no DB token, no row written. Run ${RUN_URL}"; } | bash "$scripts/set-env.sh" RECORD_ERROR
+            echo "::error title=record::Azure re-login failed; the deployments row was not written"
+            exit 1
+          fi
+
+          # A failed metadata step left these unset: defaults that keep the row insertable
+          # (`:'pr'::int` and `:'files'::jsonb` reject an empty string).
+          PR_NUMBER="${PR_NUMBER:-0}"
+          FILES_CHANGED_JSON="${FILES_CHANGED_JSON:-[]}"
+          SHORT_SHA="${SHORT_SHA:-${GITHUB_SHA:0:7}}"
+
+          : "${PG_HOST:?vars.PG_HOST is not set on sentinel-dev}"
+          : "${PG_DATABASE:?vars.PG_DATABASE is not set on sentinel-dev}"
+          : "${PG_USER:?vars.PG_USER is not set on sentinel-dev}"
+          if ! command -v psql >/dev/null 2>&1; then
+            sudo apt-get update -qq
+            sudo apt-get install -y -qq postgresql-client
+          fi
+
+          PGPASSWORD="$(az account get-access-token --resource-type oss-rdbms --query accessToken -o tsv)"
+          echo "::add-mask::${PGPASSWORD}"
+          export PGPASSWORD
+
+          err="$RUNNER_TEMP/record.err"
+          rc=0
+          psql "host=${PG_HOST} dbname=${PG_DATABASE} user=${PG_USER} sslmode=require" \
+            -X -v ON_ERROR_STOP=1 \
+            -v service="$DD_SERVICE" -v pr="$PR_NUMBER" -v sha="$SHORT_SHA" -v author="$PR_AUTHOR" \
+            -v status="$STATUS" -v run="$GITHUB_RUN_ID" -v files="$FILES_CHANGED_JSON" \
+            -v stage="${FAILED_STAGE:-none}" -v version="$APP_VERSION" 2>"$err" <<'SQL' || rc=$?
+          INSERT INTO deployments
+            (service, pr_number, commit_sha, author, deploy_status, gha_run_id, files_changed, metadata)
+          VALUES
+            (:'service', :'pr'::int, :'sha', :'author', :'status', :'run'::bigint, :'files'::jsonb,
+             jsonb_build_object('failed_stage', :'stage', 'version', :'version'));
+          SQL
+          if ((rc != 0)); then
+            cat "$err" >&2
+            { tail -c 2000 "$err"; echo "Run ${RUN_URL}"; } | bash "$scripts/set-env.sh" RECORD_ERROR
+            echo "::error title=record::the deployments INSERT failed (psql exit $rc)"
+            exit "$rc"
+          fi
+          echo "recorded ${APP_VERSION} as ${STATUS} (failed_stage ${FAILED_STAGE})"
+
+      # No deploy_status tag: bookkeeping must not trip the deploy-failure monitor.
+      - name: Report record failure
+        if: always() && steps.record.outcome == 'failure'
+        uses: ./.github/actions/dd-report
+        with:
+          title: "Deployment record FAILED for PR #${{ env.PR_NUMBER }}: ${{ env.PR_TITLE }}"
+          text: ${{ env.RECORD_ERROR }}
+          tags: >-
+            version:${{ env.APP_VERSION }},service:${{ env.DD_SERVICE }},env:${{ env.DD_ENV }},
+            stage:record
+          alert-type: error
+          dd-api-key: ${{ secrets.DD_API_KEY }}
+          dd-site: ${{ vars.DD_SITE }}
+
+      # Stage 6 — the final event and the `deploy.completed` log, whatever happened above.
+      - name: Report final summary
+        if: always()
+        uses: ./.github/actions/dd-report
+        with:
+          title: "Deployment ${{ env.STATUS || 'failed' }} for PR #${{ env.PR_NUMBER }}: ${{ env.PR_TITLE }}"
+          text: ${{ env.DEPLOY_SUMMARY_TEXT || format('Run {0}', env.RUN_URL) }}
+          tags: >-
+            version:${{ env.APP_VERSION }},service:${{ env.DD_SERVICE }},env:${{ env.DD_ENV }},
+            deploy_status:${{ env.STATUS || 'failed' }},failed_stage:${{ env.FAILED_STAGE || 'none' }}
+          alert-type: ${{ env.DEPLOY_ALERT_TYPE || 'error' }}
+          log-payload: ${{ env.DEPLOY_LOG_PAYLOAD }}
+          dd-api-key: ${{ secrets.DD_API_KEY }}
+          dd-site: ${{ vars.DD_SITE }}

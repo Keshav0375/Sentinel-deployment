@@ -1,0 +1,36 @@
+{
+  "name": "sentinel-runtime-health GET /health",
+  "type": "api",
+  "subtype": "http",
+  "status": "live",
+  "config": {
+    "request": {
+      "method": "GET",
+      "url": "__APP_URL__/health",
+      "timeout": 60
+    },
+    "assertions": [
+      {
+        "type": "statusCode",
+        "operator": "is",
+        "target": 200
+      }
+    ]
+  },
+  "locations": [
+    "aws:ca-central-1"
+  ],
+  "options": {
+    "tick_every": 300,
+    "min_failure_duration": 300,
+    "min_location_failed": 1,
+    "monitor_options": {
+      "renotify_interval": 0
+    }
+  },
+  "message": "sentinel-watchtower GET /health has failed for 5 minutes (case iii, signal_type runtime_error): the version that passed verify is broken at runtime.\n{{#is_alert}}@webhook-sentinel-event-grid{{/is_alert}}",
+  "tags": [
+    "service:sentinel-watchtower",
+    "env:dev"
+  ]
+}
