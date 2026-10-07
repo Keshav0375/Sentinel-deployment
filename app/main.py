@@ -15,7 +15,7 @@ from fastapi import FastAPI
 from app.config import AppConfig
 
 settings = AppConfig()
-_started_at = time.monotonic()
+_process_started = time.monotonic()
 
 
 def startup_record(config: AppConfig) -> dict[str, str]:
@@ -48,7 +48,7 @@ def root() -> dict[str, str]:
 
 @app.get("/health")
 def health() -> dict[str, str | int]:
-    return {"status": "ok", "uptime_seconds": int(time.monotonic() - _started_at)}
+    return {"status": "ok", "uptime_seconds": int(time.monotonic() - _process_started)}
 
 
 @app.get("/version")
