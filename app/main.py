@@ -10,12 +10,13 @@ from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from datetime import UTC, datetime
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Response
 
 from app.config import AppConfig
 
 settings = AppConfig()
 _started_at = time.monotonic()
+MAINTENANCE_MODE = True
 
 
 def startup_record(config: AppConfig) -> dict[str, str]:
@@ -42,7 +43,11 @@ app = FastAPI(title="sentinel-watchtower", lifespan=lifespan)
 
 
 @app.get("/")
-def root() -> dict[str, str]:
+def root(response: Response) -> dict[str, str]:
+    if MAINTENANCE_MODE:
+        response.status_code = 503
+        response.headers["Retry-After"] = "3600"
+        return {"message": "down for maintenance", "service": settings.dd_service}
     return {"message": "ok", "service": settings.dd_service}
 
 
