@@ -5,12 +5,13 @@ structured startup line and reports which version is live.
 """
 
 import json
+import os
 import time
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from datetime import UTC, datetime
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Response
 
 from app.config import AppConfig
 
@@ -47,8 +48,12 @@ def root() -> dict[str, str]:
 
 
 @app.get("/health")
-def health() -> dict[str, str | int]:
-    return {"status": "ok", "uptime_seconds": int(time.monotonic() - _started_at)}
+def health(response: Response) -> dict[str, str | int]:
+    uptime = int(time.monotonic() - _started_at)
+    if time.time() - os.path.getmtime(__file__) > 600:
+        response.status_code = 503
+        return {"status": "degraded", "uptime_seconds": uptime}
+    return {"status": "ok", "uptime_seconds": uptime}
 
 
 @app.get("/version")
