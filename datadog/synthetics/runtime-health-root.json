@@ -14,6 +14,22 @@
         "type": "statusCode",
         "operator": "is",
         "target": 200
+      },
+      {
+        "type": "header",
+        "property": "content-type",
+        "operator": "contains",
+        "target": "application/json"
+      },
+      {
+        "type": "body",
+        "operator": "validatesJSONPath",
+        "target": {
+          "jsonPath": "$.message",
+          "operator": "is",
+          "elementsOperator": "firstElementMatches",
+          "targetValue": "ok"
+        }
       }
     ]
   },
@@ -32,7 +48,7 @@
       "renotify_interval": 0
     }
   },
-  "message": "sentinel-watchtower GET / has failed (twice, a minute apart) (case iii, signal_type runtime_error): the version that passed verify is broken at runtime.\n{{#is_alert}}@webhook-sentinel-event-grid{{/is_alert}}",
+  "message": "sentinel-watchtower GET / failed a check (status 200, content-type application/json, $.message == ok) twice, a minute apart (case iii, signal_type runtime_error): the version that passed verify is broken at runtime.\n{{#is_alert}}@webhook-sentinel-event-grid{{/is_alert}}",
   "tags": [
     "service:sentinel-watchtower",
     "env:dev"

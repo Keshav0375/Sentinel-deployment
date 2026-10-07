@@ -12,9 +12,9 @@ never CI, because it needs the Datadog application key.
 
 | File | Object | Fires on | Case | Evidence class | Bridge `signal_type` |
 |------|--------|----------|------|----------------|----------------------|
-| `monitors/deploy-failure.json` | monitor `sentinel-deploy-failure` (event-v2 alert) | any event matching `deploy_status:failed service:sentinel-watchtower` in the last 5 min | ii: the deploy failed and the old version is still live | **C**: the deploy-failure event | `deploy_failure` |
-| `synthetics/runtime-health-root.json` | API test `sentinel-runtime-health GET /` | `GET <app>/` not returning 200 for 5 min | iii: verify passed, but the live app is broken | **B**: runtime | `runtime_error` |
-| `synthetics/runtime-health-health.json` | API test `sentinel-runtime-health GET /health` | `GET <app>/health` not returning 200 for 5 min | iii | **B**: runtime | `runtime_error` |
+| `monitors/deploy-failure.json` | monitor `sentinel-deploy-failure` (event-v2 alert) | any event matching `deploy_status:failed service:sentinel-watchtower` in the last 5 min | ii: the deploy failed. The old version stays live only for a build-stage failure or an Oryx build (requirements) failure; if the new version cannot boot or fails verify, the broken version is live | **C**: the deploy-failure event | `deploy_failure` |
+| `synthetics/runtime-health-root.json` | API test `sentinel-runtime-health GET /` | `GET <app>/` failing any of: status 200, `content-type` contains `application/json`, `$.message == "ok"` (attempt and its retry a minute later) | iii: verify passed, but the live app is broken | **B**: runtime | `runtime_error` |
+| `synthetics/runtime-health-health.json` | API test `sentinel-runtime-health GET /health` | `GET <app>/health` not returning 200 (attempt and its retry a minute later) | iii | **B**: runtime | `runtime_error` |
 | `webhook.json` | Webhooks integration `sentinel-event-grid` | the target of every alert above | | | |
 
 `ci_app_deployment.yml` sends a `deploy_status:failed` event for the failed stage

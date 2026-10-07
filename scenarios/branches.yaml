@@ -1,0 +1,246 @@
+# Ground-truth catalog of the 30 scenario branches (deployment §4, §4.1 — exhaustive).
+#
+# One entry per branch. Each branch is one `scenario:` commit on top of `main` that
+# changes app/** or requirements.txt, so merging it deploys it. The eval runner
+# (backend §13.2) scores Sentinel against these labels: did it fire, did it classify
+# (`expected_signal_type`), did it correlate (`also_expected`: the second alert one
+# deploy raises), and did its revert PR target the right merge (`expected_culprit`:
+# `self` is bound at run time to the merge's `pr-<N>-<sha>`).
+#
+# Fields: branch · case (i|ii|iii) · fault · expected_signal_type
+# (none|deploy_failure|runtime_error) · expected_resolution
+# (none|rollback|rollback_or_escalate) · expected_failed_stage (case ii only:
+# build|deploy|verify) · also_expected (list) · expected_culprit (self|none).
+# tests/test_scenarios.py checks this file against the branches themselves.
+
+branches:
+  # ── Case i — clean pass: green pipeline, healthy app, no incident ─────────────
+  - branch: pass/01
+    case: i
+    fault: add GET /info
+    expected_signal_type: none
+    expected_resolution: none
+    also_expected: []
+    expected_culprit: none
+  - branch: pass/02
+    case: i
+    fault: refactor the startup log's timestamp into a helper
+    expected_signal_type: none
+    expected_resolution: none
+    also_expected: []
+    expected_culprit: none
+  - branch: pass/03
+    case: i
+    fault: add a region field to GET /
+    expected_signal_type: none
+    expected_resolution: none
+    also_expected: []
+    expected_culprit: none
+  - branch: pass/04
+    case: i
+    fault: a comment in main.py
+    expected_signal_type: none
+    expected_resolution: none
+    also_expected: []
+    expected_culprit: none
+  - branch: pass/05
+    case: i
+    fault: module docstrings
+    expected_signal_type: none
+    expected_resolution: none
+    also_expected: []
+    expected_culprit: none
+  - branch: pass/06
+    case: i
+    fault: type hints
+    expected_signal_type: none
+    expected_resolution: none
+    also_expected: []
+    expected_culprit: none
+  - branch: pass/07
+    case: i
+    fault: extract a response helper
+    expected_signal_type: none
+    expected_resolution: none
+    also_expected: []
+    expected_culprit: none
+  - branch: pass/08
+    case: i
+    fault: rename an internal variable
+    expected_signal_type: none
+    expected_resolution: none
+    also_expected: []
+    expected_culprit: none
+  - branch: pass/09
+    case: i
+    fault: add an X-Service response header
+    expected_signal_type: none
+    expected_resolution: none
+    also_expected: []
+    expected_culprit: none
+  - branch: pass/10
+    case: i
+    fault: move uptime logic into a helper
+    expected_signal_type: none
+    expected_resolution: none
+    also_expected: []
+    expected_culprit: none
+
+  # ── Case ii — deploy fails: red pipeline, deploy-failure event monitor ───────
+  # build stage, or Oryx failing to install requirements.txt: the previous version
+  # keeps serving. An app that cannot boot fails the deploy stage too (az webapp
+  # deploy tracks the runtime status), but the broken version is what is live, so it
+  # is down. Verify stage: the new, broken version IS live (F1 has no slots).
+  - branch: deployfail/01
+    case: ii
+    fault: symlink inside app/ (build refuses it)
+    expected_signal_type: deploy_failure
+    expected_resolution: rollback
+    expected_failed_stage: build
+    also_expected: []
+    expected_culprit: self
+  - branch: deployfail/02
+    case: ii
+    fault: delete requirements.txt
+    expected_signal_type: deploy_failure
+    expected_resolution: rollback
+    expected_failed_stage: build
+    also_expected: []
+    expected_culprit: self
+  - branch: deployfail/03
+    case: ii
+    fault: pin fastapi to a version that doesn't exist
+    expected_signal_type: deploy_failure
+    expected_resolution: rollback
+    expected_failed_stage: deploy
+    also_expected: []
+    expected_culprit: self
+  - branch: deployfail/04
+    case: ii
+    fault: unsatisfiable pin (starlette version incompatible with pinned fastapi)
+    expected_signal_type: deploy_failure
+    expected_resolution: rollback
+    expected_failed_stage: deploy
+    also_expected: []
+    expected_culprit: self
+  - branch: deployfail/05
+    case: ii
+    fault: /health returns 503
+    expected_signal_type: deploy_failure
+    expected_resolution: rollback
+    expected_failed_stage: verify
+    also_expected: [runtime_error]
+    expected_culprit: self
+  - branch: deployfail/06
+    case: ii
+    fault: /version hardcoded to "wrong"
+    expected_signal_type: deploy_failure
+    expected_resolution: rollback
+    expected_failed_stage: verify
+    also_expected: []
+    expected_culprit: self
+  - branch: deployfail/07
+    case: ii
+    fault: syntax error in main.py
+    expected_signal_type: deploy_failure
+    expected_resolution: rollback
+    expected_failed_stage: deploy
+    also_expected: [runtime_error]
+    expected_culprit: self
+  - branch: deployfail/08
+    case: ii
+    fault: import of a module that doesn't exist
+    expected_signal_type: deploy_failure
+    expected_resolution: rollback
+    expected_failed_stage: deploy
+    also_expected: [runtime_error]
+    expected_culprit: self
+  - branch: deployfail/09
+    case: ii
+    fault: required AppConfig field with no default and no env
+    expected_signal_type: deploy_failure
+    expected_resolution: rollback
+    expected_failed_stage: deploy
+    also_expected: [runtime_error]
+    expected_culprit: self
+  - branch: deployfail/10
+    case: ii
+    fault: lifespan raises at startup
+    expected_signal_type: deploy_failure
+    expected_resolution: rollback
+    expected_failed_stage: deploy
+    also_expected: [runtime_error]
+    expected_culprit: self
+
+  # ── Case iii — runtime error: green pipeline, a runtime-health synthetic fires ─
+  # Verify only calls /health and /version, so every one of these passes it.
+  - branch: runtime/01
+    case: iii
+    fault: GET / returns 500
+    expected_signal_type: runtime_error
+    expected_resolution: rollback_or_escalate
+    also_expected: []
+    expected_culprit: self
+  - branch: runtime/02
+    case: iii
+    fault: GET / route removed (404)
+    expected_signal_type: runtime_error
+    expected_resolution: rollback_or_escalate
+    also_expected: []
+    expected_culprit: self
+  - branch: runtime/03
+    case: iii
+    fault: GET / raises an unhandled exception
+    expected_signal_type: runtime_error
+    expected_resolution: rollback_or_escalate
+    also_expected: []
+    expected_culprit: self
+  - branch: runtime/04
+    case: iii
+    fault: GET / blocks 90 s (> 60 s check timeout)
+    expected_signal_type: runtime_error
+    expected_resolution: rollback_or_escalate
+    also_expected: []
+    expected_culprit: self
+  - branch: runtime/05
+    case: iii
+    fault: GET / reads a required env var per request (missing) → 500
+    expected_signal_type: runtime_error
+    expected_resolution: rollback_or_escalate
+    also_expected: []
+    expected_culprit: self
+  - branch: runtime/06
+    case: iii
+    fault: GET / calls an unreachable downstream (5 s timeout) → 500
+    expected_signal_type: runtime_error
+    expected_resolution: rollback_or_escalate
+    also_expected: []
+    expected_culprit: self
+  - branch: runtime/07
+    case: iii
+    fault: /health returns 503 once > 10 min after the deploy (file mtime)
+    expected_signal_type: runtime_error
+    expected_resolution: rollback_or_escalate
+    also_expected: []
+    expected_culprit: self
+  - branch: runtime/08
+    case: iii
+    fault: GET / returns text/plain instead of JSON
+    expected_signal_type: runtime_error
+    expected_resolution: rollback_or_escalate
+    also_expected: []
+    expected_culprit: self
+  - branch: runtime/09
+    case: iii
+    fault: 'GET / returns {"message":"error"} with 200'
+    expected_signal_type: runtime_error
+    expected_resolution: rollback_or_escalate
+    also_expected: []
+    expected_culprit: self
+  - branch: runtime/10
+    case: iii
+    fault: GET / "maintenance mode" 503
+    expected_signal_type: runtime_error
+    expected_resolution: rollback_or_escalate
+    also_expected: []
+    expected_culprit: self
