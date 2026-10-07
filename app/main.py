@@ -6,11 +6,11 @@ structured startup line and reports which version is live.
 
 import json
 import time
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Awaitable, Callable
 from contextlib import asynccontextmanager
 from datetime import UTC, datetime
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Request, Response
 
 from app.config import AppConfig
 
@@ -39,6 +39,15 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
 
 
 app = FastAPI(title="sentinel-watchtower", lifespan=lifespan)
+
+
+@app.middleware("http")
+async def add_service_header(
+    request: Request, call_next: Callable[[Request], Awaitable[Response]]
+) -> Response:
+    response = await call_next(request)
+    response.headers["X-Service"] = settings.dd_service
+    return response
 
 
 @app.get("/")
