@@ -9,12 +9,16 @@ and the eval runner (backend §13.2) scores Sentinel against it.
 | Case | Branches | Pipeline | Live app | Datadog signal | `signal_type` |
 |------|----------|----------|----------|----------------|---------------|
 | i — clean pass | `pass/01..10` | green | healthy | success event only | `none` |
-| ii — deploy fails | `deployfail/01..10` | red | build/deploy stage: the previous version; verify stage: **the broken version** | `sentinel-deploy-failure` monitor | `deploy_failure` |
+| ii — deploy fails | `deployfail/01..10` | red | build stage or an Oryx requirements failure: the previous version; the app cannot boot (deploy stage) or fails verify: **the broken version** | `sentinel-deploy-failure` monitor | `deploy_failure` |
 | iii — runtime error | `runtime/01..10` | green | the broken version | a `sentinel-runtime-health` synthetic | `runtime_error` |
 
-A verify-stage failure that leaves the app down or `/health` broken also trips a
-synthetic. Those entries carry `also_expected: [runtime_error]`: one deploy, two alerts,
-and Sentinel should correlate them to the same merge.
+A deploy that leaves the app down or `/health` broken also trips a synthetic:
+- `deployfail/07..10`: the app cannot boot, so `az webapp deploy` reports RuntimeFailed
+  and the deploy stage fails with the broken version live.
+- `deployfail/05`, which fails verify.
+
+Those entries carry `also_expected: [runtime_error]`: one deploy, two alerts, and
+Sentinel should correlate them to the same merge.
 
 ## Run a scenario
 

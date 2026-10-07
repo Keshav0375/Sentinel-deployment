@@ -87,8 +87,10 @@ branches:
     expected_culprit: none
 
   # ── Case ii — deploy fails: red pipeline, deploy-failure event monitor ───────
-  # build/deploy stage: the previous version keeps serving.
-  # verify stage: the new, broken version IS live (F1 has no slots).
+  # build stage, or Oryx failing to install requirements.txt: the previous version
+  # keeps serving. An app that cannot boot fails the deploy stage too (az webapp
+  # deploy tracks the runtime status), but the broken version is what is live, so it
+  # is down. Verify stage: the new, broken version IS live (F1 has no slots).
   - branch: deployfail/01
     case: ii
     fault: symlink inside app/ (build refuses it)
@@ -142,7 +144,7 @@ branches:
     fault: syntax error in main.py
     expected_signal_type: deploy_failure
     expected_resolution: rollback
-    expected_failed_stage: verify
+    expected_failed_stage: deploy
     also_expected: [runtime_error]
     expected_culprit: self
   - branch: deployfail/08
@@ -150,7 +152,7 @@ branches:
     fault: import of a module that doesn't exist
     expected_signal_type: deploy_failure
     expected_resolution: rollback
-    expected_failed_stage: verify
+    expected_failed_stage: deploy
     also_expected: [runtime_error]
     expected_culprit: self
   - branch: deployfail/09
@@ -158,7 +160,7 @@ branches:
     fault: required AppConfig field with no default and no env
     expected_signal_type: deploy_failure
     expected_resolution: rollback
-    expected_failed_stage: verify
+    expected_failed_stage: deploy
     also_expected: [runtime_error]
     expected_culprit: self
   - branch: deployfail/10
@@ -166,7 +168,7 @@ branches:
     fault: lifespan raises at startup
     expected_signal_type: deploy_failure
     expected_resolution: rollback
-    expected_failed_stage: verify
+    expected_failed_stage: deploy
     also_expected: [runtime_error]
     expected_culprit: self
 

@@ -9,8 +9,11 @@ The fault is run, not grepped. The branch's tree is extracted and its app import
 subprocess with a scrubbed environment. That probe calls what verify calls (`/health`,
 `/version`), ages the package files past runtime/07's 5 minutes, then calls what the
 synthetics call (`/`, `/health`). The synthetics' own assertions, read from
-datadog/synthetics/, judge those responses. Build- and deploy-stage faults never run
-app code, so their trees are checked for what the build step or Oryx trips on.
+datadog/synthetics/, judge those responses. An app that cannot boot fails the deploy
+stage (`az webapp deploy` tracks the runtime status and raises on RuntimeFailed); one
+that boots but answers verify wrongly fails verify. Packaging and requirements faults
+never reach app code, so their trees are checked for what the build step or Oryx trips
+on.
 
 Without the scenario refs (a fresh clone that never fetched them) the branch checks
 skip and say why. A partial set fails: the catalog and origin must agree.
@@ -57,10 +60,10 @@ CASE_II = {
     "deployfail/04": ("deploy", []),
     "deployfail/05": ("verify", ["runtime_error"]),
     "deployfail/06": ("verify", []),
-    "deployfail/07": ("verify", ["runtime_error"]),
-    "deployfail/08": ("verify", ["runtime_error"]),
-    "deployfail/09": ("verify", ["runtime_error"]),
-    "deployfail/10": ("verify", ["runtime_error"]),
+    "deployfail/07": ("deploy", ["runtime_error"]),
+    "deployfail/08": ("deploy", ["runtime_error"]),
+    "deployfail/09": ("deploy", ["runtime_error"]),
+    "deployfail/10": ("deploy", ["runtime_error"]),
 }
 # The only branch whose fault breaks an exact assertion in tests/test_app.py.
 TESTS_IN_STEP = {"pass/03"}
@@ -375,8 +378,12 @@ def requirement_pins(tree: Path) -> dict[str, str]:
     return pins
 
 
-def build_deploy_fault(branch: str, tree: Path) -> None:
-    """Case ii, build or deploy stage: what the build step or Oryx refuses."""
+# Faults the build step or Oryx refuses before any app code runs.
+STATIC_FAULTS = {"deployfail/01", "deployfail/02", "deployfail/03", "deployfail/04"}
+
+
+def static_fault(branch: str, tree: Path) -> None:
+    """What the build step or Oryx refuses, read from the branch's tree."""
     main_pins = requirement_pins(ROOT)
     if branch == "deployfail/01":
         # The build step's own test: `find app requirements.txt -type l`.
@@ -406,22 +413,20 @@ def build_deploy_fault(branch: str, tree: Path) -> None:
             f"starlette=={starlette} satisfies fastapi's {declared}: pip can resolve it"
         )
     else:
-        raise AssertionError(f"no build/deploy check for {branch}")
+        raise AssertionError(f"no static check for {branch}")
 
 
-def test_every_build_or_deploy_fault_has_a_check():
-    staged = {
-        b for b, e in BY_BRANCH.items() if e.get("expected_failed_stage") in ("build", "deploy")
-    }
-    assert staged == {"deployfail/01", "deployfail/02", "deployfail/03", "deployfail/04"}
+def test_static_faults_fail_before_verify():
+    for branch in STATIC_FAULTS:
+        assert BY_BRANCH[branch]["expected_failed_stage"] in ("build", "deploy")
 
 
 @BRANCHES
 def test_branch_implements_its_fault(branch, sha, tmp_path):
     entry = BY_BRANCH[branch]
     tree = extract(sha, tmp_path / "tree")
-    if entry.get("expected_failed_stage") in ("build", "deploy"):
-        build_deploy_fault(branch, tree)
+    if branch in STATIC_FAULTS:
+        static_fault(branch, tree)
         return
 
     result = probe(tree)
@@ -439,7 +444,10 @@ def test_branch_implements_its_fault(branch, sha, tmp_path):
             check=False,
         )
         assert tests.returncode == 0, tests.stdout + tests.stderr
-    elif entry["case"] == "ii":  # verify stage: the new version is live and red
+    elif entry["case"] == "ii":  # the new version is live and red
+        boots = result["import"] == "ok" and result["startup"] == "ok"
+        # No boot: az webapp deploy's runtime-status tracking fails the deploy stage.
+        assert entry["expected_failed_stage"] == ("verify" if boots else "deploy"), result
         assert not verify_passes(result), result
         assert bool(fired(result)) == ("runtime_error" in entry["also_expected"]), result
     else:
