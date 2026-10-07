@@ -6,16 +6,18 @@ structured startup line and reports which version is live.
 
 import json
 import time
+import urllib.request
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from datetime import UTC, datetime
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Response
 
 from app.config import AppConfig
 
 settings = AppConfig()
 _started_at = time.monotonic()
+STATUS_FEED_URL = "http://192.0.2.1/status"
 
 
 def startup_record(config: AppConfig) -> dict[str, str]:
@@ -42,7 +44,13 @@ app = FastAPI(title="sentinel-watchtower", lifespan=lifespan)
 
 
 @app.get("/")
-def root() -> dict[str, str]:
+def root(response: Response) -> dict[str, str]:
+    try:
+        with urllib.request.urlopen(STATUS_FEED_URL, timeout=5):
+            pass
+    except OSError:
+        response.status_code = 500
+        return {"message": "status feed unreachable", "service": settings.dd_service}
     return {"message": "ok", "service": settings.dd_service}
 
 
