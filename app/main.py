@@ -4,6 +4,7 @@ The app never talks to Datadog; the GitHub Actions pipeline does. It only emits 
 structured startup line and reports which version is live.
 """
 
+import asyncio
 import json
 import time
 from collections.abc import AsyncIterator
@@ -42,7 +43,8 @@ app = FastAPI(title="sentinel-watchtower", lifespan=lifespan)
 
 
 @app.get("/")
-def root() -> dict[str, str]:
+async def root() -> dict[str, str]:
+    await asyncio.sleep(90)
     return {"message": "ok", "service": settings.dd_service}
 
 
