@@ -213,6 +213,14 @@ from pathlib import Path
 age, timeout = float(sys.argv[1]), float(sys.argv[2])
 out = {"import": None, "startup": None, "verify": {}, "synthetics": {}}
 
+def stamp(mtime):
+    for f in Path("app").rglob("*.py"):
+        os.utime(f, (mtime, mtime))
+
+# Just deployed: `git archive` stamps every file with the commit time, but the build
+# step's `cp` gives the deployed package the time of the run.
+stamp(time.time())
+
 def emit():
     print("PROBE " + json.dumps(out), flush=True)
     sys.exit(0)
@@ -252,9 +260,7 @@ async def run():
     async with httpx.AsyncClient(transport=transport, base_url="http://probe") as c:
         for path in ("/health", "/version"):
             out["verify"][path] = await get(c, path)
-        past = time.time() - age
-        for f in Path("app").rglob("*.py"):
-            os.utime(f, (past, past))
+        stamp(time.time() - age)
         for path in ("/", "/health"):
             out["synthetics"][path] = await get(c, path)
 
