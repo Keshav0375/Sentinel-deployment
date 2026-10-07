@@ -395,8 +395,10 @@ def static_fault(branch: str, tree: Path) -> None:
         assert not (tree / "requirements.txt").exists()
         assert (tree / "app" / "main.py").is_file()
     elif branch == "deployfail/03":
+        # 0.0.0 was never released (fastapi starts at 0.1.0) and cannot be squatted.
         pins = requirement_pins(tree)
-        assert pins.pop("nonexistent-package") == "1.0.0"
+        assert pins.pop("fastapi") == "0.0.0"
+        main_pins.pop("fastapi")
         assert pins == main_pins
     elif branch == "deployfail/04":
         pins = requirement_pins(tree)

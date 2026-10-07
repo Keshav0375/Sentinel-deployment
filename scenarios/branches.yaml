@@ -109,7 +109,7 @@ branches:
     expected_culprit: self
   - branch: deployfail/03
     case: ii
-    fault: nonexistent-package==1.0.0 in requirements.txt
+    fault: pin fastapi to a version that doesn't exist
     expected_signal_type: deploy_failure
     expected_resolution: rollback
     expected_failed_stage: deploy
