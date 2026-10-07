@@ -41,9 +41,14 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
 app = FastAPI(title="sentinel-watchtower", lifespan=lifespan)
 
 
+def _with_service(**fields: str) -> dict[str, str]:
+    """A response body tagged with this service's name."""
+    return {**fields, "service": settings.dd_service}
+
+
 @app.get("/")
 def root() -> dict[str, str]:
-    return {"message": "ok", "service": settings.dd_service}
+    return _with_service(message="ok")
 
 
 @app.get("/health")
@@ -53,4 +58,4 @@ def health() -> dict[str, str | int]:
 
 @app.get("/version")
 def version() -> dict[str, str]:
-    return {"version": settings.app_version, "service": settings.dd_service}
+    return _with_service(version=settings.app_version)
