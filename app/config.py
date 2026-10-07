@@ -1,4 +1,7 @@
-"""App configuration — env vars (or a local `.env`) via pydantic-settings."""
+"""App configuration — env vars (or a local `.env`) via pydantic-settings.
+
+On App Service every field comes from an app setting; locally the defaults serve.
+"""
 
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
