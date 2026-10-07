@@ -152,6 +152,41 @@ def test_runtime_health_covers_both_routes():
     assert routes == {"__APP_URL__/", "__APP_URL__/health"}
 
 
+STATUS_200 = {"type": "statusCode", "operator": "is", "target": 200}
+
+
+def test_root_check_asserts_status_content_type_and_body():
+    """deployment §4.1: runtime/08 (text/plain) and runtime/09 (200 with message:error)
+    answer 200, so only these two assertions catch them."""
+    assertions = load(DATADOG / "synthetics" / "runtime-health-root.json")["config"][
+        "assertions"
+    ]
+    assert assertions == [
+        STATUS_200,
+        {
+            "type": "header",
+            "property": "content-type",
+            "operator": "contains",
+            "target": "application/json",
+        },
+        {
+            "type": "body",
+            "operator": "validatesJSONPath",
+            "target": {
+                "jsonPath": "$.message",
+                "operator": "is",
+                "elementsOperator": "firstElementMatches",
+                "targetValue": "ok",
+            },
+        },
+    ]  # and no latency assertion: F1 cold starts would false-alarm (decision 2026-10-07)
+
+
+def test_health_check_asserts_status_only():
+    test = load(DATADOG / "synthetics" / "runtime-health-health.json")
+    assert test["config"]["assertions"] == [STATUS_200]
+
+
 # ── apply.sh ──────────────────────────────────────────────────────────────────
 
 STUB_CURL = r"""#!/usr/bin/env bash
