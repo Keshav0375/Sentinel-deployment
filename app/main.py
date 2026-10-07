@@ -5,6 +5,7 @@ structured startup line and reports which version is live.
 """
 
 import json
+import os
 import time
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
@@ -43,7 +44,8 @@ app = FastAPI(title="sentinel-watchtower", lifespan=lifespan)
 
 @app.get("/")
 def root() -> dict[str, str]:
-    return {"message": "ok", "service": settings.dd_service}
+    upstream = os.environ["UPSTREAM_API_URL"]
+    return {"message": "ok", "service": settings.dd_service, "upstream": upstream}
 
 
 @app.get("/health")
