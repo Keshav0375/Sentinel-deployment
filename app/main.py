@@ -41,11 +41,6 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
 app = FastAPI(title="sentinel-watchtower", lifespan=lifespan)
 
 
-@app.get("/")
-def root() -> dict[str, str]:
-    return {"message": "ok", "service": settings.dd_service}
-
-
 @app.get("/health")
 def health() -> dict[str, str | int]:
     return {"status": "ok", "uptime_seconds": int(time.monotonic() - _started_at)}
