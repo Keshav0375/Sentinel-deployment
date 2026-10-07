@@ -11,6 +11,7 @@ from contextlib import asynccontextmanager
 from datetime import UTC, datetime
 
 from fastapi import FastAPI
+from fastapi.responses import PlainTextResponse
 
 from app.config import AppConfig
 
@@ -41,9 +42,9 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
 app = FastAPI(title="sentinel-watchtower", lifespan=lifespan)
 
 
-@app.get("/")
-def root() -> dict[str, str]:
-    return {"message": "ok", "service": settings.dd_service}
+@app.get("/", response_class=PlainTextResponse)
+def root() -> str:
+    return "ok"
 
 
 @app.get("/health")
