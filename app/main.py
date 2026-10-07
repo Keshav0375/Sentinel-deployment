@@ -13,6 +13,7 @@ from datetime import UTC, datetime
 from fastapi import FastAPI
 
 from app.config import AppConfig
+from app.telemetry import instrument
 
 settings = AppConfig()
 _started_at = time.monotonic()
@@ -39,6 +40,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
 
 
 app = FastAPI(title="sentinel-watchtower", lifespan=lifespan)
+instrument(app)
 
 
 @app.get("/")
