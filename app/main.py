@@ -15,6 +15,7 @@ from fastapi import FastAPI
 from app.config import AppConfig
 
 settings = AppConfig()
+# Monotonic, so /health's uptime never jumps when the wall clock is corrected.
 _started_at = time.monotonic()
 
 
