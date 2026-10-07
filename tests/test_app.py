@@ -15,7 +15,7 @@ from app import main
 from app.config import AppConfig
 
 TEST_VERSION = "v9.9.9-test"
-_CONFIG_ENV = ("APP_VERSION", "DD_SERVICE", "DD_ENV", "PORT")
+_CONFIG_ENV = ("APP_VERSION", "DD_SERVICE", "DD_ENV", "PORT", "REGION_NAME")
 _TIMESTAMP = re.compile(r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$")
 
 
@@ -37,7 +37,11 @@ def client(isolated_settings: None) -> Iterator[TestClient]:
 def test_root(client: TestClient) -> None:
     response = client.get("/")
     assert response.status_code == 200
-    assert response.json() == {"message": "ok", "service": "sentinel-watchtower"}
+    assert response.json() == {
+        "message": "ok",
+        "service": "sentinel-watchtower",
+        "region": "local",
+    }
 
 
 def test_health(client: TestClient) -> None:
