@@ -7,7 +7,7 @@ of `main`, only deployable paths, a clean merge, and the fault itself.
 
 The fault is run, not grepped. The branch's tree is extracted and its app imported in a
 subprocess with a scrubbed environment. That probe calls what verify calls (`/health`,
-`/version`), ages the package files past runtime/07's 5 minutes, then calls what the
+`/version`), ages the package files past runtime/07's 10 minutes, then calls what the
 synthetics call (`/`, `/health`). The synthetics' own assertions, read from
 datadog/synthetics/, judge those responses. An app that cannot boot fails the deploy
 stage (`az webapp deploy` tracks the runtime status and raises on RuntimeFailed); one
@@ -209,15 +209,16 @@ def test_branch_merges_cleanly_into_main(branch, sha):
 
 PROBE_VERSION = "pr-0-scenario"
 PROBE_TIMEOUT = 10  # s per request; runtime/04 must still be blocked when it expires
-PACKAGE_AGE = 360  # s; past runtime/07's 5 minutes, as by the time a synthetic runs
+PACKAGE_AGE = 660  # s; past runtime/07's 10 minutes, as by the time a synthetic runs
+MIDWAY_AGE = 360  # s; still inside them: a synthetic run this soon must pass
 
 # Runs inside the branch's tree. Prints one `PROBE <json>` line.
 PROBE = r"""
 import asyncio, json, os, sys, time
 from pathlib import Path
 
-age, timeout = float(sys.argv[1]), float(sys.argv[2])
-out = {"import": None, "startup": None, "verify": {}, "synthetics": {}}
+age, midway, timeout = float(sys.argv[1]), float(sys.argv[2]), float(sys.argv[3])
+out = {"import": None, "startup": None, "verify": {}, "midway": {}, "synthetics": {}}
 
 def stamp(mtime):
     for f in Path("app").rglob("*.py"):
@@ -266,6 +267,8 @@ async def run():
     async with httpx.AsyncClient(transport=transport, base_url="http://probe") as c:
         for path in ("/health", "/version"):
             out["verify"][path] = await get(c, path)
+        stamp(time.time() - midway)
+        out["midway"]["/health"] = await get(c, "/health")
         stamp(time.time() - age)
         for path in ("/", "/health"):
             out["synthetics"][path] = await get(c, path)
@@ -294,7 +297,7 @@ def extract(sha: str, dest: Path) -> Path:
 
 def probe(tree: Path) -> dict:
     proc = subprocess.run(
-        [sys.executable, "-c", PROBE, str(PACKAGE_AGE), str(PROBE_TIMEOUT)],
+        [sys.executable, "-c", PROBE, str(PACKAGE_AGE), str(MIDWAY_AGE), str(PROBE_TIMEOUT)],
         cwd=tree,
         env=scrubbed_env(),
         capture_output=True,
@@ -360,7 +363,7 @@ def verify_passes(result: dict) -> bool:
 
 
 def fired(result: dict) -> set[str]:
-    """The synthetics that fail once the deploy is > 5 min old."""
+    """The synthetics that fail once the deploy is > 10 min old."""
     routes = ("/", "/health")
     if result["import"] != "ok" or result["startup"] != "ok":
         return set(routes)  # the app is down
@@ -455,3 +458,5 @@ def test_branch_implements_its_fault(branch, sha, tmp_path):
     else:
         assert verify_passes(result), result
         assert fired(result) == {RUNTIME_TARGET.get(branch, "/")}, result
+        if branch == "runtime/07":  # anchored at 10 min, not sooner
+            assert synthetic_passes("/health", result["midway"]["/health"]), result

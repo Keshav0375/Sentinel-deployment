@@ -46,8 +46,9 @@ Never merge a scenario branch for any other reason: merging it deploys the fault
 - **Case iii, and `also_expected: [runtime_error]`:** the synthetics run every 30 min and
   retry a failure once a minute later, so an alert can take up to about **31 min** after
   the deploy. "Run test now" on the test in Datadog skips the wait.
-- **`runtime/07`** degrades `/health` only once its package files are more than 5 min
-  old (their mtime is the deploy), so a manual "Run test now" must wait those 5 min.
+- **`runtime/07`** degrades `/health` only once its package files are more than 10 min
+  old (their mtime is the deploy). A manual "Run test now" must wait those 10 min, and a
+  scheduled run inside them still passes, so detection can take up to about 41 min.
 - **`runtime/04`** holds `GET /` for 90 s; the check times out at 60 s.
 
 ## Checks

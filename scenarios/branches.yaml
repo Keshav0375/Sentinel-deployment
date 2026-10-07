@@ -218,7 +218,7 @@ branches:
     expected_culprit: self
   - branch: runtime/07
     case: iii
-    fault: /health returns 503 once > 5 min after the deploy (file mtime)
+    fault: /health returns 503 once > 10 min after the deploy (file mtime)
     expected_signal_type: runtime_error
     expected_resolution: rollback_or_escalate
     also_expected: []
