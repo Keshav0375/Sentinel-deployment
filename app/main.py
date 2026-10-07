@@ -10,7 +10,7 @@ from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from datetime import UTC, datetime
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Response
 
 from app.config import AppConfig
 
@@ -47,8 +47,10 @@ def root() -> dict[str, str]:
 
 
 @app.get("/health")
-def health() -> dict[str, str | int]:
-    return {"status": "ok", "uptime_seconds": int(time.monotonic() - _started_at)}
+def health(response: Response) -> dict[str, str | int]:
+    response.status_code = 503
+    uptime = int(time.monotonic() - _started_at)
+    return {"status": "unavailable", "uptime_seconds": uptime}
 
 
 @app.get("/version")
