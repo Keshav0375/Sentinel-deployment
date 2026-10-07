@@ -43,7 +43,7 @@ app = FastAPI(title="sentinel-watchtower", lifespan=lifespan)
 
 @app.get("/")
 def root() -> dict[str, str]:
-    return {"message": "ok", "service": settings.dd_service}
+    return {"message": "error", "service": settings.dd_service}
 
 
 @app.get("/health")
