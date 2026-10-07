@@ -53,4 +53,4 @@ def health() -> dict[str, str | int]:
 
 @app.get("/version")
 def version() -> dict[str, str]:
-    return {"version": settings.app_version, "service": settings.dd_service}
+    return {"version": "wrong", "service": settings.dd_service}
