@@ -10,3 +10,4 @@ class AppConfig(BaseSettings):
     dd_service: str = "sentinel-watchtower"
     dd_env: str = "dev"
     port: int = 8000
+    license_key: str
