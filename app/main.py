@@ -54,3 +54,12 @@ def health() -> dict[str, str | int]:
 @app.get("/version")
 def version() -> dict[str, str]:
     return {"version": settings.app_version, "service": settings.dd_service}
+
+
+@app.get("/info")
+def info() -> dict[str, str]:
+    return {
+        "service": settings.dd_service,
+        "env": settings.dd_env,
+        "version": settings.app_version,
+    }
