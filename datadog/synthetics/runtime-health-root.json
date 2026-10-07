@@ -21,14 +21,18 @@
     "aws:ca-central-1"
   ],
   "options": {
-    "tick_every": 300,
-    "min_failure_duration": 300,
+    "tick_every": 1800,
+    "min_failure_duration": 0,
+    "retry": {
+      "count": 1,
+      "interval": 60000
+    },
     "min_location_failed": 1,
     "monitor_options": {
       "renotify_interval": 0
     }
   },
-  "message": "sentinel-watchtower GET / has failed for 5 minutes (case iii, signal_type runtime_error): the version that passed verify is broken at runtime.\n{{#is_alert}}@webhook-sentinel-event-grid{{/is_alert}}",
+  "message": "sentinel-watchtower GET / has failed (twice, a minute apart) (case iii, signal_type runtime_error): the version that passed verify is broken at runtime.\n{{#is_alert}}@webhook-sentinel-event-grid{{/is_alert}}",
   "tags": [
     "service:sentinel-watchtower",
     "env:dev"

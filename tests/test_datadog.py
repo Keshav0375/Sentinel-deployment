@@ -135,8 +135,11 @@ def test_runtime_tests_ping_the_app_every_five_minutes(path):
     assert test["config"]["request"]["method"] == "GET"
     assert len(test["locations"]) == 1
     options = test["options"]
-    assert options["tick_every"] == 300
-    assert options["min_failure_duration"] == 300
+    # F1 sleeps after ~20 idle min; a check every 5 min cold-starts it constantly and
+    # burned the 60 CPU-min/day quota live (2026-10-07). 30 min keeps it under.
+    assert options["tick_every"] == 1800
+    assert options["min_failure_duration"] == 0
+    assert options["retry"] == {"count": 1, "interval": 60000}
     assert options["min_location_failed"] == 1
     assert options["monitor_options"]["renotify_interval"] == 0
     body = {"tags": ",".join(test["tags"]), "title": f"[Triggered] {test['name']}"}
