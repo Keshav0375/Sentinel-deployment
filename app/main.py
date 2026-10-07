@@ -18,11 +18,16 @@ settings = AppConfig()
 _started_at = time.monotonic()
 
 
+def _utc_timestamp() -> str:
+    """Now in UTC, to the millisecond, with a `Z` suffix."""
+    now = datetime.now(UTC).isoformat(timespec="milliseconds")
+    return now.replace("+00:00", "Z")
+
+
 def startup_record(config: AppConfig) -> dict[str, str]:
     """The `app.startup` log line, keyed exactly as deployment §2.2."""
-    now = datetime.now(UTC).isoformat(timespec="milliseconds")
     return {
-        "timestamp": now.replace("+00:00", "Z"),
+        "timestamp": _utc_timestamp(),
         "level": "info",
         "message": "app.startup",
         "app_version": config.app_version,
