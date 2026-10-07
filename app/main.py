@@ -14,8 +14,8 @@ from fastapi import FastAPI
 
 from app.config import AppConfig
 
-settings = AppConfig()
-_started_at = time.monotonic()
+settings: AppConfig = AppConfig()
+_started_at: float = time.monotonic()
 
 
 def startup_record(config: AppConfig) -> dict[str, str]:
