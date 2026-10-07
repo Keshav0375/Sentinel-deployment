@@ -78,13 +78,15 @@ substituted into JSON strings unescaped, so keep monitor and test names free of
 - **Recovery before re-alert**:
   - The event monitor resolves only after a full 5-minute window with no failed
     deploy event. A second failure inside that window does not re-alert.
-  - A test resolves only on a passing run. It then has to fail for another
-    5 minutes before it can alert again.
-- **5-minute window on runtime**: both tests run every 5 minutes (`tick_every: 300`)
-  from one managed location (`aws:ca-central-1`, next to the app). They alert after
-  failing for 5 minutes (`min_failure_duration: 300`). So a condition-B demo alerts
-  within about 5–10 minutes of going live.
-  - A single slow cold start on the F1 plan does not alert.
+  - A test resolves only on a passing run, and must fail again to re-alert.
+- **Every 30 minutes, not 5** (`tick_every: 1800`) from one managed location
+  (`aws:ca-central-1`, next to the app). The F1 plan sleeps after ~20 idle minutes and
+  has a **60 CPU-minute daily quota**; a 5-minute check cold-started gunicorn all day and
+  put the app into `QuotaExceeded` (live, 2026-10-07) — the monitor broke the thing it
+  watches. A failed run is retried once a minute later (`retry`), and alerts if the retry
+  also fails (`min_failure_duration: 0`), so one slow cold start does not alert. A
+  condition-B demo alerts within ~30 min of going live — trigger the test manually
+  ("Run test now") to demo faster.
   - Each request times out at 60 s.
 
 ## Apply
@@ -132,7 +134,7 @@ reaches Sentinel.
 
 Synthetics API tests are billed per test run:
 
-- Total: 2 tests × 1 location × 12 runs an hour ≈ **17,300 runs a month**.
+- Total: 2 tests × 1 location × 2 runs an hour ≈ **2,900 runs a month** (plus retries).
 - Pricing is per 10,000 API test runs. Check the org's plan; the student-pack
   allowance may not include Synthetics.
 - When you are not demoing, pause both tests in the Datadog UI, or set

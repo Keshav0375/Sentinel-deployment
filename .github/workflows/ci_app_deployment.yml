@@ -16,6 +16,16 @@ name: "[deployment] deploy — build and ship"
 on:
   push:
     branches: [main]
+    # Only what ships or builds the deploy. A datadog/, tests/ or docs change has
+    # nothing to deploy, and against a destroyed estate it would fire a false
+    # deploy_failure into Datadog. Every scenario branch touches app/ or
+    # requirements.txt, so all 30 still deploy.
+    paths:
+      - "app/**"
+      - "requirements.txt"
+      - ".github/workflows/ci_app_deployment.yml"
+      - ".github/actions/dd-report/**"
+      - ".github/scripts/**"
 
 # No DD_SITE here: it is a `sentinel-dev` environment variable, which only the job sees,
 # so each dd-report step passes `vars.DD_SITE` itself.
