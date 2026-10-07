@@ -62,6 +62,8 @@ CASE_II = {
     "deployfail/09": ("verify", ["runtime_error"]),
     "deployfail/10": ("verify", ["runtime_error"]),
 }
+# The only branch whose fault breaks an exact assertion in tests/test_app.py.
+TESTS_IN_STEP = {"pass/03"}
 # The synthetic each case-iii branch trips (§4.1); every other one trips GET /.
 RUNTIME_TARGET = {"runtime/07": "/health"}
 
@@ -182,12 +184,13 @@ def test_branch_is_one_scenario_commit_on_main(branch, sha):
 @BRANCHES
 def test_branch_touches_only_what_deploys(branch, sha):
     """The deploy's path filter is app/** + requirements.txt: anything else and the
-    merge never deploys. A pass/* branch may also keep tests/test_app.py in step."""
+    merge never deploys. pass/03 alone also changes tests/test_app.py: its new `region`
+    field breaks test_root's exact body otherwise."""
     proc = git("diff-tree", "-r", "-z", "--no-commit-id", "--name-only", f"{sha}^", sha)
     paths = [p for p in proc.stdout.decode().split("\0") if p]
     deploys = [p for p in paths if p.startswith("app/") or p == "requirements.txt"]
     assert deploys, f"{branch} changes nothing the deploy ships: {paths}"
-    allowed = {"tests/test_app.py"} if BY_BRANCH[branch]["case"] == "i" else set()
+    allowed = {"tests/test_app.py"} if branch in TESTS_IN_STEP else set()
     assert set(paths) - set(deploys) <= allowed
     if BY_BRANCH[branch]["case"] == "i":
         assert any(p.startswith("app/") for p in deploys)

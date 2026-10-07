@@ -24,7 +24,7 @@ branches:
     expected_culprit: none
   - branch: pass/02
     case: i
-    fault: reword the startup log message field
+    fault: refactor the startup log's timestamp into a helper
     expected_signal_type: none
     expected_resolution: none
     also_expected: []
